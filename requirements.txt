@@ -1,0 +1,5 @@
+# To run this under vscode, we need to make sure Ansible
+# etc is installed.  This makes sure it all gets there
+ansible
+ansible-lint
+ansible-navigator
