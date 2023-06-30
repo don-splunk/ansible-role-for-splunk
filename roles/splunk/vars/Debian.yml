@@ -14,3 +14,5 @@ linux_packages:
   - nethogs
   - gdb
   - dnsutils
+firewall_service: ufw
+logrotate_file: /etc/logrotate.d/rsyslog

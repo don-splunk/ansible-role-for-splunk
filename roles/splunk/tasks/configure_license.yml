@@ -5,7 +5,7 @@
 
 - name: Setting licensing mode based on Splunk version number
   set_fact:
-    mode_option: "{% if splunk_version_release | float < 9.0 %}master{% else %}manager{% endif %}_uri"
+    mode_option: "{{ splunk_version_release is version('9.0', '<') | ternary('master_uri', 'manager_uri') }}"
 
 - name: Configure Local License
   block:
@@ -16,7 +16,7 @@
       mode: "0700"
       owner: "{{ splunk_nix_user }}"
       group: "{{ splunk_nix_group }}"
-    become: yes
+    become: true
     when:
       - splunk_license_group=="Enterprise"
   - name: Copy license file
@@ -27,19 +27,23 @@
       group: "{{ splunk_nix_group }}"
       mode: "0600"
     loop: "{{ splunk_license_file }}"
-    become: yes
+    become: true
+    notify: restart splunk
     when:
       - splunk_license_group=="Enterprise"
-  - name: Remove master_uri when using local license
+  - name: "Remove license manager uri when using local license"
     ini_file:
       path: "{{ splunk_home }}/etc/system/local/server.conf"
       section: license
-      option: "{{ mode_option }}"
-      value: "{{ splunk_uri_lm }}"
+      option: "{{ item }}"
       owner: "{{ splunk_nix_user }}"
       group: "{{ splunk_nix_group }}"
       state: absent
-    become: yes
+    with_items: 
+      - manager_uri
+      - master_uri
+    become: true
+    notify: restart splunk
   - name: Configure License Group
     ini_file:
       path: "{{ splunk_home }}/etc/system/local/server.conf"
@@ -48,7 +52,7 @@
       value: "{{ splunk_license_group }}"
       owner: "{{ splunk_nix_user }}"
       group: "{{ splunk_nix_group }}"
-    become: yes
+    become: true
     notify: restart splunk
   when:
     - not splunk_license_group=="Peer"
@@ -56,7 +60,7 @@
 
 - name: Configure License Peer
   block:
-  - name: Set license master_uri
+  - name: "Set license {{ mode_option }}"
     ini_file:
       path: "{{ splunk_home }}/etc/system/local/server.conf"
       section: license
@@ -64,18 +68,30 @@
       value: "{{ splunk_uri_lm }}"
       owner: "{{ splunk_nix_user }}"
       group: "{{ splunk_nix_group }}"
-    become: yes
+    become: true
+    notify: restart splunk
+
+  - name: Extract encrypted value
+    include_tasks: check_decrypted_secret.yml
+    vars:
+      req_secret_conf: server
+      req_secret_section: general
+      req_secret_option: pass4SymmKey
 
   - name: Set pass4SymmKey to match LM
     ini_file:
       path: "{{ splunk_home }}/etc/system/local/server.conf"
       section: general
       option: pass4SymmKey
-      value: "{{ pass4SymmKey }}"
+      value: "{{ splunk_general_key }}"
       owner: "{{ splunk_nix_user }}"
       group: "{{ splunk_nix_group }}"
-    become: yes
+    become: true
     notify: restart splunk
+    when:
+      - splunk_general_key != "undefined"
+      - encrypted_secret_value.stdout == "" or (splunk_general_key != decrypted_secret_value.stdout | default(''))
+    no_log: true
   when:
     - splunk_license_group=="Peer"
     - splunk_install_type=="full"
